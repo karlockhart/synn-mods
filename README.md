@@ -61,7 +61,10 @@ synn-mods/
 
 - **Games**: the app lists the repo's top-level folders through the GitHub API and treats every
   folder that has a `game.json` as a game. Folders like `src` and `tools` have none, so they're
-  skipped. Files are read from `raw.githubusercontent.com`, which caches for up to 5 minutes.
+  skipped. Each refresh looks up the newest commit on `main` and reads the files from
+  `raw.githubusercontent.com` at that exact commit, so a pushed `mods.json` shows up as soon as
+  players open Synn Mods or press **Refresh** (Synn Mods 0.1.1 and later; 0.1.0 can lag up to
+  5 minutes behind GitHub's cache).
 - **Mods**: each mod is a zip of its mod folder (so `ModManifest.json` is at the top of the zip),
   attached to a GitHub Release tagged `<game>-<ModId>-v<version>`. `mods.json` lists its URL,
   SHA-256 and size. The app downloads over HTTPS, checks the size and hash, refuses zips with
@@ -108,7 +111,7 @@ pass `-Publish`.
    For each changed mod this creates the release (not marked latest), uploads the zip, downloads it
    back to confirm the hash, then updates `corekeeper\mods.json`. `-Push` commits and pushes
    `mods.json`; without it, commit and push it yourself. Players see the update once `mods.json` is
-   on `main`.
+   on `main`, the next time they open Synn Mods or press **Refresh**.
 
 Use `-Mods GhostMommy` to publish one mod. A mod whose files changed needs a new `-Version`:
 releases are never overwritten, so a version always means the same files.

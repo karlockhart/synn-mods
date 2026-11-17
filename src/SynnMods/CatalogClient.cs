@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SynnMods;
 
@@ -18,6 +19,11 @@ public sealed class CatalogClient
     public static readonly HttpClient Http = CreateHttp();
 
     private readonly string? _localRoot;
+
+    /// <summary>The commit that files are read from. Resolved on every game-list load (Refresh),
+    /// so a just-pushed mods.json shows up at once instead of after raw.githubusercontent.com's
+    /// 5-minute branch cache. Falls back to the branch name if the commit can't be looked up.</summary>
+    private string _ref = Branch;
 
     public CatalogClient(string? localRoot)
     {
@@ -44,6 +50,7 @@ public sealed class CatalogClient
     {
         try
         {
+            if (!IsLocal) _ref = await ResolveCommitAsync(ct);
             var ids = await ListGameFoldersAsync(ct);
             var loaded = await Task.WhenAll(ids.Select(id => TryLoadGameAsync(id, ct)));
             var games = loaded.Where(g => g != null).Select(g => g!).OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -90,7 +97,7 @@ public sealed class CatalogClient
 
         // The contents API is rate limited (60/hour per IP without a token), so it's called once per refresh.
         using var req = new HttpRequestMessage(HttpMethod.Get,
-            $"https://api.github.com/repos/{Owner}/{Repo}/contents/?ref={Branch}");
+            $"https://api.github.com/repos/{Owner}/{Repo}/contents/?ref={_ref}");
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         using var resp = await Http.SendAsync(req, ct);
         if (resp.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
@@ -135,12 +142,37 @@ public sealed class CatalogClient
             return File.Exists(file) ? await File.ReadAllTextAsync(file, ct) : null;
         }
 
-        // raw.githubusercontent.com isn't rate limited. It caches for up to 5 minutes.
-        var url = $"https://raw.githubusercontent.com/{Owner}/{Repo}/{Branch}/{relPath}";
+        // raw.githubusercontent.com isn't rate limited. A URL with a commit id never changes, so its
+        // cache is never stale; a branch URL can be up to 5 minutes old.
+        var url = $"https://raw.githubusercontent.com/{Owner}/{Repo}/{_ref}/{relPath}";
         using var resp = await Http.GetAsync(url, ct);
         if (resp.StatusCode == HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>The newest commit on the branch, or the branch name if GitHub can't be asked
+    /// (rate limit, outage). One small API request per refresh.</summary>
+    private static async Task<string> ResolveCommitAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.github.com/repos/{Owner}/{Repo}/commits/{Branch}");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.sha"));
+            using var resp = await Http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                var sha = (await resp.Content.ReadAsStringAsync(ct)).Trim();
+                if (Regex.IsMatch(sha, "^[0-9a-f]{40}$")) return sha;
+            }
+            Log.Info($"Couldn't look up the latest commit ({(int)resp.StatusCode}); reading {Branch} instead");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Error($"Couldn't look up the latest commit; reading {Branch} instead", ex);
+        }
+        return Branch;
     }
 
     private static void SaveCache(string name, string text)

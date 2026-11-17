@@ -12,7 +12,7 @@
        hides the Synn Mods app release) and attaches the zip, using your logged-in `gh` CLI;
     2. writes the new version, URL, SHA-256 and size into <game>\mods.json.
   Then commit and push mods.json (or pass -Push). Friends see the update once mods.json is on
-  GitHub's main branch (raw.githubusercontent.com may take up to 5 minutes).
+  GitHub's main branch: the next time they open Synn Mods or press Refresh.
 
   Releases are immutable here: if a mod changed but its version didn't, the script stops and asks
   you to pass a new -Version, so nobody's installed copy silently differs from the manifest.
@@ -266,7 +266,7 @@ if ($Push) {
         if ((Invoke-Native { git commit -m $message }) -ne 0) { throw 'git commit failed.' }
         if ((Invoke-Native { git push }) -ne 0) { throw 'git push failed.' }
     } finally { Pop-Location }
-    Write-Host 'Pushed. Friends will see the update in Synn Mods within about 5 minutes.'
+    Write-Host 'Pushed. Friends see the update the next time they open Synn Mods or press Refresh.'
 } else {
     Write-Host "Now commit and push $Game\mods.json so friends see the update."
 }
