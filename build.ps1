@@ -47,6 +47,7 @@ try {
         'vpk', 'pack',
         '--packId', 'SynnMods',
         '--packVersion', $Version,
+        '--runtime', 'win-x64',
         '--packDir', $publish,
         '--mainExe', 'SynnMods.exe',
         '--packTitle', 'Synn Mods',
