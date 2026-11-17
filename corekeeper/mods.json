@@ -2,23 +2,53 @@
   "schema": 1,
   "mods": [
     {
+      "id": "CompanionWorkbench",
+      "name": "Companion Workbench",
+      "description": "Required by every pet below. A crafting bench just for pet items, made at the basic Wooden Workbench (Wood x15, Copper Bar x5, Fiber x10).",
+      "version": "1.0.0",
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-CompanionWorkbench-v1.0.0/CompanionWorkbench-1.0.0.zip",
+      "sha256": "cc600d828d38a2f906b3399ac256ef34e80b066f79ca5f2c63dfa285ce104919",
+      "size": 68333,
+      "requiredOn": "ClientAndServer"
+    },
+    {
       "id": "BumBum",
       "name": "Bum Bum",
-      "description": "A fishing gnome pet who lives in a Ship in a Bottle (crafted at the Glass Workbench). He boosts your fishing, sometimes adds an egg to a catch, and punches and throws lobsters at enemies.",
-      "version": "1.0.0",
-      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-BumBum-v1.0.0/BumBum-1.0.0.zip",
-      "sha256": "aed4f3600b982b3f682ee2fe58642021ca3302feb1c0e0749285191f196691aa",
-      "size": 122187,
+      "description": "A fishing gnome pet who lives in a Ship in a Bottle (crafted at the Companion Workbench). He boosts your fishing, sometimes adds an egg to a catch, and punches and throws lobsters at enemies. Needs Companion Workbench.",
+      "version": "1.1.0",
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-BumBum-v1.1.0/BumBum-1.1.0.zip",
+      "sha256": "b3d1225f4563d5eaf3f57989bbe77128f31f6abbdd6f771e42ba094578a8334c",
+      "size": 667297,
       "requiredOn": "ClientAndServer"
     },
     {
       "id": "GhostMommy",
       "name": "Ghost Mommy",
-      "description": "A vampiric ghost pet who lives in a Bottle of Clotted Blood (crafted at the Glass Workbench). She spits blood bolts at enemies, drains life back to you and heals nearby friends.",
+      "description": "A vampiric ghost pet who lives in a Bottle of Clotted Blood (crafted at the Companion Workbench). She spits blood bolts that drain life back to you, heals nearby friends, and fires a drain beam when her blood meter fills. Needs Companion Workbench.",
+      "version": "1.1.0",
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-GhostMommy-v1.1.0/GhostMommy-1.1.0.zip",
+      "sha256": "2e2138c6a289a788f5a46ff51314158b7490d908b8dd9311302afd89b22e9682",
+      "size": 738466,
+      "requiredOn": "ClientAndServer"
+    },
+    {
+      "id": "Gulper",
+      "name": "Perdition Gulper",
+      "description": "A pet who lives in a Half-Digested Skull (crafted at the Companion Workbench). He bites whatever you fight and swallows corpses that drop near him; once his belly is full he fires a giant beam at the strongest enemy around. Needs Companion Workbench.",
       "version": "1.0.0",
-      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-GhostMommy-v1.0.0/GhostMommy-1.0.0.zip",
-      "sha256": "ce5018a5ab633746a9152fec6e94071083726abc3ff18404c8b0c1f61f9555a1",
-      "size": 131413,
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-Gulper-v1.0.0/Gulper-1.0.0.zip",
+      "sha256": "c66860fdb90c881da2af12b4accd44447333fbed2b4035a5257f8320028a7b4e",
+      "size": 126314,
+      "requiredOn": "ClientAndServer"
+    },
+    {
+      "id": "Nyx",
+      "name": "Nyx",
+      "description": "A gloomy cat girl pet who lives in a Cat Bell (crafted at the Companion Workbench). She scratches whatever gets close, flicks broken hearts at the rest, slows nearby enemies with her gloom and gives them the Death Stare. Pats your head when you get hurt. Needs Companion Workbench.",
+      "version": "1.0.0",
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-Nyx-v1.0.0/Nyx-1.0.0.zip",
+      "sha256": "bfe65886d0b29f83cc65d4d3c4a46232cc8096fd847b254d0231d969a206c18c",
+      "size": 1125923,
       "requiredOn": "ClientAndServer"
     }
   ]
