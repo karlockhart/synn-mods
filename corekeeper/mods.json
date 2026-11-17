@@ -6,9 +6,9 @@
       "name": "Bum Bum",
       "description": "A fishing gnome pet who lives in a Ship in a Bottle (crafted at the Glass Workbench). He boosts your fishing, sometimes adds an egg to a catch, and punches and throws lobsters at enemies.",
       "version": "1.0.0",
-      "url": "",
-      "sha256": "",
-      "size": 0,
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-BumBum-v1.0.0/BumBum-1.0.0.zip",
+      "sha256": "aed4f3600b982b3f682ee2fe58642021ca3302feb1c0e0749285191f196691aa",
+      "size": 122187,
       "requiredOn": "ClientAndServer"
     },
     {
@@ -16,9 +16,9 @@
       "name": "Ghost Mommy",
       "description": "A vampiric ghost pet who lives in a Bottle of Clotted Blood (crafted at the Glass Workbench). She spits blood bolts at enemies, drains life back to you and heals nearby friends.",
       "version": "1.0.0",
-      "url": "",
-      "sha256": "",
-      "size": 0,
+      "url": "https://github.com/karlockhart/synn-mods/releases/download/corekeeper-GhostMommy-v1.0.0/GhostMommy-1.0.0.zip",
+      "sha256": "ce5018a5ab633746a9152fec6e94071083726abc3ff18404c8b0c1f61f9555a1",
+      "size": 131413,
       "requiredOn": "ClientAndServer"
     }
   ]
