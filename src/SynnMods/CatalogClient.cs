@@ -80,6 +80,13 @@ public sealed class CatalogClient
             if (!Names.IsSafeFolderName(m.Id))
                 throw new InvalidDataException($"The mod list has a bad mod id: \"{m.Id}\".");
             if (string.IsNullOrWhiteSpace(m.Name)) m.Name = m.Id;
+            m.Dependencies = (m.Dependencies ?? new List<string>())
+                .Where(d => !string.Equals(d, m.Id, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var bad = m.Dependencies.FirstOrDefault(d => !Names.IsSafeFolderName(d));
+            if (bad != null)
+                throw new InvalidDataException($"The mod list has a bad dependency \"{bad}\" for {m.Id}.");
         }
         return catalog;
     }

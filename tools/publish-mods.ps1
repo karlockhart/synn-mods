@@ -133,6 +133,28 @@ function ConvertTo-JsonString([string] $s) {
     $sb.ToString()
 }
 
+# mods.json "dependencies": ids of the mods a mod needs. They come from the required entries in the
+# mod's ModManifest.json; the app installs them first. (Under StrictMode a missing property throws,
+# hence the PSObject.Properties checks.)
+function Get-ModDeps($m) {
+    $p = $m.PSObject.Properties['dependencies']
+    if ($p -and $p.Value) { return @($p.Value | ForEach-Object { [string]$_ }) }
+    return @()
+}
+
+function Set-ModDeps($m, [string[]] $deps) {
+    $m | Add-Member -NotePropertyName dependencies -NotePropertyValue @($deps) -Force
+}
+
+function Get-ManifestDeps($manifest) {
+    $p = $manifest.PSObject.Properties['dependencies']
+    if (-not $p -or -not $p.Value) { return @() }
+    return @($p.Value |
+        Where-Object { -not $_.PSObject.Properties['required'] -or $_.required } |
+        ForEach-Object { [string]$_.modName } |
+        Where-Object { $_ })
+}
+
 function Write-ModsJson($mods, [string] $path) {
     # Hand-written so the file stays tidy (Windows PowerShell's ConvertTo-Json indents oddly).
     $items = foreach ($m in $mods) {
@@ -146,6 +168,10 @@ function Write-ModsJson($mods, [string] $path) {
             "      `"size`": $([long]$m.size)",
             "      `"requiredOn`": $(ConvertTo-JsonString $m.requiredOn)"
         )
+        $deps = @(Get-ModDeps $m)
+        if ($deps.Count -gt 0) {
+            $props += "      `"dependencies`": [$(($deps | ForEach-Object { ConvertTo-JsonString $_ }) -join ', ')]"
+        }
         "    {`n" + ($props -join ",`n") + "`n    }"
     }
     $text = "{`n  `"schema`": 1,`n  `"mods`": [`n" + ($items -join ",`n") + "`n  ]`n}`n"
@@ -167,6 +193,14 @@ foreach ($mod in $selected) {
         throw "$id's ModManifest.json has requiredOn=$($manifest.requiredOn), but mods.json says $($mod.requiredOn) ($wantRequiredOn). Rebuild the mod with the right setting or fix mods.json."
     }
 
+    $deps = @(Get-ManifestDeps $manifest)
+    foreach ($d in $deps) {
+        if (-not ($catalog.mods | Where-Object { $_.id -ceq $d })) {
+            throw "$id needs $d (ModManifest.json dependencies), but $d isn't in $Game\mods.json. Add an entry for it and publish it too."
+        }
+    }
+    $depsChanged = ((@(Get-ModDeps $mod)) -join ',') -cne ($deps -join ',')
+
     $ver = if ($Version) { $Version } else { [string]$mod.version }
     if (-not $ver) { throw "No version for $id. Pass -Version." }
     $zipName = "$id-$ver.zip"
@@ -182,10 +216,12 @@ foreach ($mod in $selected) {
         elseif ($mod.sha256 -and $mod.version -eq $ver) { 'changed-same-version' }
         else { 'new' }
     $results += [pscustomobject]@{ Mod = $mod; Id = $id; Version = $ver; Zip = $zipPath; ZipName = $zipName
-                                   Sha256 = $hash; Size = $size; Tag = $tag; Url = $url; Status = $status }
+                                   Sha256 = $hash; Size = $size; Tag = $tag; Url = $url; Status = $status
+                                   Dependencies = $deps; DepsChanged = $depsChanged }
 }
 
-$results | Format-Table Id, Version, Status, Size, Sha256 -AutoSize | Out-String | Write-Host
+$results | Format-Table Id, Version, Status, Size, @{ n = 'Needs'; e = { $_.Dependencies -join ', ' } },
+    @{ n = 'NeedsChanged'; e = { $_.DepsChanged } }, Sha256 -AutoSize | Out-String | Write-Host
 
 $bad = @($results | Where-Object Status -eq 'changed-same-version')
 if ($bad.Count -gt 0 -and ($Publish)) {
@@ -203,6 +239,7 @@ if ($LocalCatalog) {
         if ($r) {
             $copy.version = $r.Version; $copy.sha256 = $r.Sha256; $copy.size = $r.Size
             $copy.url = ([Uri](Resolve-Path $r.Zip).Path).AbsoluteUri
+            Set-ModDeps $copy $r.Dependencies
         }
         $copy
     }
@@ -232,7 +269,20 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'The GitHub CLI
 if ((Invoke-Native { gh auth status } -Quiet) -ne 0) { throw 'Not signed in to GitHub. Run: gh auth login' }
 
 $toRelease = @($results | Where-Object Status -eq 'new')
-if ($toRelease.Count -eq 0) { Write-Host 'Nothing changed; nothing to publish.'; return }
+# Same zip, but mods.json doesn't list its dependencies right yet: fix mods.json, no new release.
+$depsOnly = @($results | Where-Object { $_.Status -eq 'unchanged' -and $_.DepsChanged })
+if ($toRelease.Count -eq 0 -and $depsOnly.Count -eq 0) { Write-Host 'Nothing changed; nothing to publish.'; return }
+
+# Every dependency must be downloadable once this run is done, or the app can't install it.
+$releasing = @($toRelease | ForEach-Object Id)
+foreach ($r in @($toRelease) + @($depsOnly)) {
+    foreach ($d in $r.Dependencies) {
+        $dep = $catalog.mods | Where-Object { $_.id -ceq $d }
+        if (-not $dep.sha256 -and $releasing -notcontains $d) {
+            throw "$($r.Id) needs $d, which hasn't been published. Publish $d too (add it to -Mods)."
+        }
+    }
+}
 
 foreach ($r in $toRelease) {
     if ((Invoke-Native { gh release view $r.Tag -R $Repo --json tagName } -Quiet) -eq 0) { throw "Release $($r.Tag) already exists. Releases aren't overwritten; pass a new -Version." }
@@ -253,7 +303,9 @@ foreach ($r in $toRelease) {
     if ($remote -ne $r.Sha256) { throw "The uploaded $($r.ZipName) hashes to $remote, not $($r.Sha256). mods.json was not changed." }
 
     $r.Mod.version = $r.Version; $r.Mod.url = $r.Url; $r.Mod.sha256 = $r.Sha256; $r.Mod.size = $r.Size
+    Set-ModDeps $r.Mod $r.Dependencies
 }
+foreach ($r in $depsOnly) { Set-ModDeps $r.Mod $r.Dependencies }
 
 Write-ModsJson $catalog.mods $modsJsonPath
 Write-Host "Updated $modsJsonPath."
@@ -261,7 +313,9 @@ Write-Host "Updated $modsJsonPath."
 if ($Push) {
     Push-Location $root
     try {
-        $message = "$($gameName): publish $(($toRelease | ForEach-Object { "$($_.Id) $($_.Version)" }) -join ', ')"
+        $parts = @($toRelease | ForEach-Object { "publish $($_.Id) $($_.Version)" }) +
+                 @($depsOnly | ForEach-Object { "list $($_.Id)'s dependencies" })
+        $message = "$($gameName): $($parts -join ', ')"
         if ((Invoke-Native { git add -- "$Game/mods.json" }) -ne 0) { throw 'git add failed.' }
         if ((Invoke-Native { git commit -m $message }) -ne 0) { throw 'git commit failed.' }
         if ((Invoke-Native { git push }) -ne 0) { throw 'git push failed.' }

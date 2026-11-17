@@ -121,6 +121,8 @@ public sealed class ModViewModel : Observable
 {
     private ModState _state;
     private string? _installedVersion;
+    private string _needsText = "";
+    private string? _missingText;
 
     public ModViewModel(ModEntry? entry, string id)
     {
@@ -143,6 +145,29 @@ public sealed class ModViewModel : Observable
         _ => "Host + every player",
     };
 
+    /// <summary>True if the mod's folder is in the Mods folder (whether or not Synn Mods installed it).</summary>
+    public bool IsOnDisk { get; set; }
+
+    /// <summary>"Needs Companion Workbench", or empty for a mod with no dependencies.</summary>
+    public string NeedsText
+    {
+        get => _needsText;
+        set { if (Set(ref _needsText, value)) Raise(nameof(HasNeedsText)); }
+    }
+
+    public bool HasNeedsText => !string.IsNullOrEmpty(_needsText);
+
+    /// <summary>What's wrong with this mod's dependencies, e.g. "Companion Workbench is missing", or null.</summary>
+    public string? MissingText
+    {
+        get => _missingText;
+        set { if (Set(ref _missingText, value)) RaiseStatus(); }
+    }
+
+    /// <summary>The mod is installed but won't load: a dependency is missing or out of date.</summary>
+    public bool HasDependencyProblem =>
+        !string.IsNullOrEmpty(_missingText) && State is ModState.UpToDate or ModState.UpdateAvailable or ModState.Unknown;
+
     public string? InstalledVersion
     {
         get => _installedVersion;
@@ -162,16 +187,22 @@ public sealed class ModViewModel : Observable
         set
         {
             if (!Set(ref _state, value)) return;
-            Raise(nameof(StatusText));
-            Raise(nameof(StatusKind));
-            Raise(nameof(ActionText));
+            RaiseStatus();
             Raise(nameof(CanInstall));
             Raise(nameof(CanRemove));
             Raise(nameof(InstalledVersionText));
         }
     }
 
-    public string StatusText => State switch
+    private void RaiseStatus()
+    {
+        Raise(nameof(StatusText));
+        Raise(nameof(StatusKind));
+        Raise(nameof(ActionText));
+        Raise(nameof(HasDependencyProblem));
+    }
+
+    public string StatusText => HasDependencyProblem ? $"Won't load: {MissingText}" : State switch
     {
         ModState.NotInstalled => "Not installed",
         ModState.UpToDate => "Up to date",
@@ -183,14 +214,14 @@ public sealed class ModViewModel : Observable
     };
 
     /// <summary>Used by the UI to pick the status colour: good, warn, muted.</summary>
-    public string StatusKind => State switch
+    public string StatusKind => HasDependencyProblem ? "warn" : State switch
     {
         ModState.UpToDate => "good",
         ModState.UpdateAvailable or ModState.Unknown => "warn",
         _ => "muted",
     };
 
-    public string ActionText => State switch
+    public string ActionText => HasDependencyProblem && State == ModState.UpToDate ? "Install what it needs" : State switch
     {
         ModState.NotInstalled => "Install",
         ModState.UpdateAvailable => $"Update to {AvailableVersion}",

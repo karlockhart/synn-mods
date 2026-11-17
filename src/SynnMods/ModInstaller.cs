@@ -15,7 +15,9 @@ public sealed class ModInstaller
 
     public ModInstaller(InstallRecords records) => _records = records;
 
-    public sealed record LocalMod(string Id, string Folder, string? ManifestName, InstalledMod? Record);
+    /// <param name="Dependencies">The mod's required dependencies, from its ModManifest.json.</param>
+    public sealed record LocalMod(string Id, string Folder, string? ManifestName, InstalledMod? Record,
+        IReadOnlyList<string> Dependencies);
 
     /// <summary>Every mod folder in <paramref name="modsDir"/> (folders with a ModManifest.json).</summary>
     public List<LocalMod> ListInstalled(string modsDir)
@@ -28,7 +30,8 @@ public sealed class ModInstaller
             if (id.StartsWith(TempPrefix, StringComparison.OrdinalIgnoreCase)) continue;
             var manifest = Path.Combine(dir, "ModManifest.json");
             if (!File.Exists(manifest)) continue;
-            result.Add(new LocalMod(id, dir, ReadManifestName(manifest), _records.Get(modsDir, id)));
+            var (name, deps) = ReadManifest(manifest);
+            result.Add(new LocalMod(id, dir, name, _records.Get(modsDir, id), deps));
         }
         return result;
     }
@@ -190,7 +193,7 @@ public sealed class ModInstaller
         var manifest = Path.Combine(staging, "ModManifest.json");
         if (!File.Exists(manifest))
             throw new InvalidDataException($"The {mod.Name} package has no ModManifest.json at its top level.");
-        var name = ReadManifestName(manifest);
+        var (name, _) = ReadManifest(manifest);
         if (!string.Equals(name, mod.Id, StringComparison.Ordinal))
             throw new InvalidDataException($"The {mod.Name} package's ModManifest.json is for \"{name}\", not \"{mod.Id}\".");
     }
@@ -221,18 +224,32 @@ public sealed class ModInstaller
         }
     }
 
-    private static string? ReadManifestName(string manifestPath)
+    /// <summary>A ModManifest.json's "name" and its required dependencies' mod names.</summary>
+    private static (string? Name, IReadOnlyList<string> Dependencies) ReadManifest(string manifestPath)
     {
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath),
                 new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
-            return doc.RootElement.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var root = doc.RootElement;
+            var name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            var deps = new List<string>();
+            if (root.TryGetProperty("dependencies", out var list) && list.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var d in list.EnumerateArray())
+                {
+                    if (d.ValueKind != JsonValueKind.Object) continue;
+                    var required = !d.TryGetProperty("required", out var r) || r.ValueKind != JsonValueKind.False;
+                    if (required && d.TryGetProperty("modName", out var dn) && dn.GetString() is { Length: > 0 } depName)
+                        deps.Add(depName);
+                }
+            }
+            return (name, deps);
         }
         catch (Exception ex)
         {
             Log.Error($"Could not read {manifestPath}", ex);
-            return null;
+            return (null, Array.Empty<string>());
         }
     }
 

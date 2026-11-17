@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly SelfUpdater _updater = new();
     private readonly CancellationTokenSource _closing = new();
     private bool _loadingGame;
+    /// <summary>Mod folders found by the last refresh, with the dependencies their manifests declare.</summary>
+    private List<ModInstaller.LocalMod> _installed = new();
 
     public MainWindow(string? localCatalog)
     {
@@ -142,8 +144,8 @@ public partial class MainWindow : Window
         game.Mods.Clear();
         foreach (var entry in game.Catalog?.Mods ?? new List<ModEntry>())
         {
-            var vm = new ModViewModel(entry, entry.Id);
             var local = installed.FirstOrDefault(m => string.Equals(m.Id, entry.Id, StringComparison.OrdinalIgnoreCase));
+            var vm = new ModViewModel(entry, entry.Id) { IsOnDisk = local != null };
             if (local == null)
             {
                 if (modsDir != null) _records.Remove(modsDir, entry.Id); // deleted by hand
@@ -165,8 +167,53 @@ public partial class MainWindow : Window
 
         // Mods in the folder that aren't in the catalog: listed so the user can see everything installed.
         foreach (var local in installed.Where(l => game.Mods.All(m => !string.Equals(m.Id, l.Id, StringComparison.OrdinalIgnoreCase))))
-            game.Mods.Add(new ModViewModel(null, local.Id) { State = ModState.OtherMod });
+            game.Mods.Add(new ModViewModel(null, local.Id) { State = ModState.OtherMod, IsOnDisk = true });
+
+        _installed = installed;
+        UpdateDependencyStates(game);
     }
+
+    /// <summary>Fills in each mod's "Needs …" line and flags installed mods whose dependencies are
+    /// missing or out of date (they won't load in-game).</summary>
+    private static void UpdateDependencyStates(GameViewModel game)
+    {
+        foreach (var vm in game.Mods)
+        {
+            var deps = vm.Entry?.Dependencies ?? new List<string>();
+            if (deps.Count == 0) continue;
+
+            var names = new List<string>();
+            var problems = new List<string>();
+            foreach (var depId in deps)
+            {
+                var dep = FindMod(game, depId);
+                var name = dep?.Name ?? depId;
+                names.Add(name);
+                if (dep == null || NeedsInstall(dep))
+                {
+                    problems.Add(dep?.State switch
+                    {
+                        ModState.UpdateAvailable => $"{name} needs an update",
+                        ModState.Unknown => $"{name} is an unknown version",
+                        _ => $"{name} is missing",
+                    });
+                }
+            }
+            vm.NeedsText = vm.IsOnDisk || problems.Count == 0
+                ? $"Needs {string.Join(", ", names)}"
+                : $"Needs {string.Join(", ", names)} (installed with it)";
+            vm.MissingText = problems.Count > 0 ? string.Join(", ", problems) : null;
+        }
+    }
+
+    private static ModViewModel? FindMod(GameViewModel game, string id) =>
+        game.Mods.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True if the mod isn't installed, or is installed at a different or unknown version.</summary>
+    private static bool NeedsInstall(ModViewModel mod) => mod.Entry == null
+        ? !mod.IsOnDisk
+        : mod.State is ModState.NotInstalled or ModState.UpdateAvailable or ModState.Unknown
+          || (mod.State == ModState.NotPublished && !mod.IsOnDisk);
 
     // ---------- Install location ----------
 
@@ -251,8 +298,23 @@ public partial class MainWindow : Window
 
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is ModViewModel { Entry: { } entry })
-            await InstallAsync(new[] { entry });
+        if ((sender as FrameworkElement)?.DataContext is not ModViewModel { Entry: { } entry } vm || _vm.SelectedGame is not { } game)
+            return;
+        // Up to date but a dependency is missing: install just what it needs.
+        if (vm.HasDependencyProblem && vm.State == ModState.UpToDate)
+        {
+            var needed = entry.Dependencies
+                .Select(id => FindMod(game, id))
+                .Where(d => d?.Entry != null && NeedsInstall(d))
+                .Select(d => d!.Entry!)
+                .ToList();
+            if (needed.Count > 0)
+            {
+                await InstallAsync(needed);
+                return;
+            }
+        }
+        await InstallAsync(new[] { entry });
     }
 
     private async void InstallAll_Click(object sender, RoutedEventArgs e)
@@ -270,9 +332,24 @@ public partial class MainWindow : Window
         await InstallAsync(todo);
     }
 
-    private async Task InstallAsync(IReadOnlyList<ModEntry> mods)
+    private async Task InstallAsync(IReadOnlyList<ModEntry> requested)
     {
         if (!TryGetModsDir(out var game, out var target, out var modsDir)) return;
+
+        // Add missing or outdated dependencies, each before the mods that need it.
+        List<ModEntry> mods;
+        try
+        {
+            var catalog = (game.Catalog?.Mods ?? new List<ModEntry>())
+                .ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
+            mods = DependencyPlanner.Plan(requested, catalog,
+                id => FindMod(game, id) is not { } m || NeedsInstall(m));
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Synn Mods", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         if (!ConfirmGameNotRunning(target)) return;
 
         var done = 0;
@@ -293,7 +370,7 @@ public partial class MainWindow : Window
                 }
                 _vm.Status = mods.Count == 1
                     ? $"Installed {mods[0].Name} {mods[0].Version}."
-                    : $"Installed {done} mods.";
+                    : $"Installed {string.Join(", ", mods.Select(m => $"{m.Name} {m.Version}"))}.";
             }
             catch (OperationCanceledException)
             {
@@ -316,10 +393,17 @@ public partial class MainWindow : Window
     {
         if ((sender as FrameworkElement)?.DataContext is not ModViewModel mod) return;
         if (!TryGetModsDir(out var game, out var target, out var modsDir)) return;
+        var dependents = DependencyPlanner.Dependents(_installed, mod.Id)
+            .Select(d => FindMod(game, d.Id)?.Name ?? d.Id)
+            .ToList();
+        var warning = dependents.Count == 0
+            ? ""
+            : $"{string.Join(", ", dependents)} {(dependents.Count == 1 ? "needs" : "need")} {mod.Name} " +
+              $"and won't load without it. Remove {(dependents.Count == 1 ? "it" : "them")} too, or keep {mod.Name}.\n\n";
         if (MessageBox.Show(this,
-                $"Remove {mod.Name} from {target.Label}?\n\nThis deletes {Path.Combine(modsDir, mod.Id)}.\n" +
+                $"{warning}Remove {mod.Name} from {target.Label}?\n\nThis deletes {Path.Combine(modsDir, mod.Id)}.\n" +
                 "Worlds that used this mod's items may lose them.",
-                "Synn Mods", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+                "Synn Mods", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         if (!ConfirmGameNotRunning(target)) return;
 
         await RunBusyAsync($"Removing {mod.Name}…", () =>

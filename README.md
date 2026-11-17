@@ -70,6 +70,11 @@ synn-mods/
   SHA-256 and size. The app downloads over HTTPS, checks the size and hash, refuses zips with
   unsafe paths, checks that `ModManifest.json`'s `name` matches the mod id, unpacks next to the Mods
   folder and swaps the folder in. A failed install leaves the old version in place.
+- **Dependencies**: a mod's `dependencies` in `mods.json` lists the mod ids it needs (for Core
+  Keeper, the required entries in its `ModManifest.json`; every pet needs `CompanionWorkbench`).
+  Installing or updating a mod installs or updates what it needs first. A mod whose dependency is
+  missing or out of date shows **Won't load: …** with an **Install what it needs** button, and
+  removing a mod that others need warns first.
 - **What's installed** is recorded in `%APPDATA%\SynnMods\installed.json` per Mods folder, so the
   app can tell which version you have. Mod folders it didn't install show as *Not managed* or
   *version unknown*.
@@ -112,6 +117,10 @@ pass `-Publish`.
    back to confirm the hash, then updates `corekeeper\mods.json`. `-Push` commits and pushes
    `mods.json`; without it, commit and push it yourself. Players see the update once `mods.json` is
    on `main`, the next time they open Synn Mods or press **Refresh**.
+
+The script reads each mod's required dependencies from its `ModManifest.json` and writes them to
+`mods.json`. It stops if a dependency isn't in `mods.json` or won't be published. If only the
+dependency list is out of date (same zip), `-Publish` fixes `mods.json` without a new release.
 
 Use `-Mods GhostMommy` to publish one mod. A mod whose files changed needs a new `-Version`:
 releases are never overwritten, so a version always means the same files.

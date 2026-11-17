@@ -57,6 +57,9 @@ public sealed class ModEntry
     public long Size { get; set; }
     /// <summary>"ClientAndServer" (everyone needs it), "Client" or "Server".</summary>
     public string RequiredOn { get; set; } = "ClientAndServer";
+    /// <summary>Ids of mods this one needs to load (its ModManifest.json's required dependencies).
+    /// Installing this mod installs or updates them first.</summary>
+    public List<string> Dependencies { get; set; } = new();
 
     [JsonIgnore] public bool IsPublished =>
         !string.IsNullOrWhiteSpace(Url) && Regex.IsMatch(Sha256 ?? "", "^[0-9a-fA-F]{64}$");

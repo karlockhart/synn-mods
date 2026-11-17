@@ -119,6 +119,55 @@ public static class SmokeTest
         Check("Remove: record gone", records.Get(modsDir, "GhostMommy") == null);
         Throws<InvalidDataException>("Remove refuses unsafe ids", () => { installer.Remove(modsDir, ".."); return Task.CompletedTask; });
 
+        // ---- dependencies ----
+        string FakeMod(string id, params string[] deps)
+        {
+            var folder = Path.Combine(work, "fake", id);
+            Directory.CreateDirectory(folder);
+            var depJson = string.Join(",", deps.Select(d => $"{{\"modName\":\"{d}\",\"required\":true}}")
+                .Append("{\"modName\":\"Optional\",\"required\":false}"));
+            File.WriteAllText(Path.Combine(folder, "ModManifest.json"),
+                $"{{\"name\":\"{id}\",\"dependencies\":[{depJson}]}}");
+            return Zip(folder, Path.Combine(pkgs, id + ".zip"));
+        }
+        var benchZip = FakeMod("Bench");
+        var petZip = FakeMod("Pet", "Bench");
+        ModEntry Bench() => Entry("Bench", benchZip, "1.0.0");
+        ModEntry Pet() { var e = Entry("Pet", petZip, "1.0.0"); e.Dependencies.Add("Bench"); return e; }
+        Dictionary<string, ModEntry> Cat(params ModEntry[] mods) => mods.ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
+        string Ids(IEnumerable<ModEntry> mods) => string.Join(",", mods.Select(m => m.Id));
+
+        Check("Plan: missing dependency is installed first",
+            Ids(DependencyPlanner.Plan(new[] { Pet() }, Cat(Bench(), Pet()), _ => true)) == "Bench,Pet");
+        Check("Plan: up-to-date dependency is left alone",
+            Ids(DependencyPlanner.Plan(new[] { Pet() }, Cat(Bench(), Pet()), id => id != "Bench")) == "Pet");
+        Check("Plan: no duplicates when both are requested",
+            Ids(DependencyPlanner.Plan(new[] { Pet(), Bench() }, Cat(Bench(), Pet()), _ => true)) == "Bench,Pet");
+        var deepPet = Pet(); deepPet.Id = "Deep"; deepPet.Dependencies[0] = "Pet";
+        Check("Plan: dependencies of an up-to-date dependency are still checked",
+            Ids(DependencyPlanner.Plan(new[] { deepPet }, Cat(Bench(), Pet(), deepPet), id => id == "Bench" || id == "Deep")) == "Bench,Deep");
+        var unpublished = Bench(); unpublished.Url = ""; unpublished.Sha256 = "";
+        Throws<InvalidOperationException>("Plan: unpublished dependency is refused",
+            () => { DependencyPlanner.Plan(new[] { Pet() }, Cat(unpublished, Pet()), _ => true); return Task.CompletedTask; });
+        Throws<InvalidOperationException>("Plan: dependency missing from the catalog is refused",
+            () => { DependencyPlanner.Plan(new[] { Pet() }, Cat(Pet()), _ => true); return Task.CompletedTask; });
+        Check("Plan: dependency installed by hand (not in catalog) is accepted",
+            Ids(DependencyPlanner.Plan(new[] { Pet() }, Cat(Pet()), id => id != "Bench")) == "Pet");
+        var loopA = Pet(); loopA.Id = "LoopA"; loopA.Dependencies[0] = "LoopB";
+        var loopB = Pet(); loopB.Id = "LoopB"; loopB.Dependencies[0] = "LoopA";
+        Check("Plan: dependency loop terminates",
+            Ids(DependencyPlanner.Plan(new[] { loopA }, Cat(loopA, loopB), _ => true)) == "LoopB,LoopA");
+
+        installer.InstallAsync(modsDir, Pet(), progress, ct).GetAwaiter().GetResult();
+        var petLocal = installer.ListInstalled(modsDir).Single(m => m.Id == "Pet");
+        Check("Manifest: required dependencies read, optional ones skipped",
+            string.Join(",", petLocal.Dependencies) == "Bench");
+        installer.InstallAsync(modsDir, Bench(), progress, ct).GetAwaiter().GetResult();
+        Check("Dependents: Pet needs Bench",
+            string.Join(",", DependencyPlanner.Dependents(installer.ListInstalled(modsDir), "Bench").Select(m => m.Id)) == "Pet");
+        Check("Dependents: nothing needs Pet", DependencyPlanner.Dependents(installer.ListInstalled(modsDir), "Pet").Count == 0);
+        installer.Remove(modsDir, "Bench"); // leave Pet without its dependency for the window check
+
         // A mod someone copied in by hand
         Directory.CreateDirectory(Path.Combine(modsDir, "HandMod"));
         File.WriteAllText(Path.Combine(modsDir, "HandMod", "ModManifest.json"), "{\"name\":\"HandMod\"}");
@@ -131,8 +180,12 @@ public static class SmokeTest
                 Entry("BumBum", bumZip, "1.0.1"),
                 Entry("GhostMommy", ghostZip, "1.0.0"),
                 new ModEntry { Id = "Upcoming", Name = "Upcoming", Description = "Not published yet.", Version = "0.1.0" },
+                Bench(),
+                Pet(),
             },
         };
+        catalog.Mods[3].Name = "Companion Bench";
+        catalog.Mods[4].Name = "Pet Gnome";
         catalog.Mods[0].Name = "Bum Bum";
         catalog.Mods[0].Description = "A fishing gnome pet who lives in a Ship in a Bottle.";
         catalog.Mods[1].Name = "Ghost Mommy";
@@ -143,7 +196,8 @@ public static class SmokeTest
         var (games, _) = client2.GetGamesAsync(ct).GetAwaiter().GetResult();
         Check("Catalog: only folders with game.json are games", games.Count == 1 && games[0].Id == "corekeeper");
         var mods = client2.GetModsAsync("corekeeper", ct).GetAwaiter().GetResult();
-        Check("Catalog: mods.json parsed", mods.Mods.Count == 3 && mods.Mods[0].IsPublished && !mods.Mods[2].IsPublished);
+        Check("Catalog: mods.json parsed", mods.Mods.Count == 5 && mods.Mods[0].IsPublished && !mods.Mods[2].IsPublished);
+        Check("Catalog: dependencies parsed", string.Join(",", mods.Mods[4].Dependencies) == "Bench");
 
         // ---- window screenshot ----
         var settings = new Settings { LastGame = "corekeeper" };
@@ -161,7 +215,7 @@ public static class SmokeTest
         var window = new MainWindow(catalogDir)
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = -10000, Top = -10000, ShowActivated = false, ShowInTaskbar = false,
+            Left = -10000, Top = -10000, Height = 1250, ShowActivated = false, ShowInTaskbar = false,
         };
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
@@ -178,7 +232,12 @@ public static class SmokeTest
             var states = vm.SelectedGame?.Mods.Select(m => $"{m.Id}={m.State}").ToList() ?? new List<string>();
             Console.WriteLine("Mod states: " + string.Join(", ", states));
             Check("Window: states", string.Join(",", states) ==
-                "BumBum=UpdateAvailable,GhostMommy=NotInstalled,Upcoming=NotPublished,HandMod=OtherMod");
+                "BumBum=UpdateAvailable,GhostMommy=NotInstalled,Upcoming=NotPublished,Bench=NotInstalled,Pet=UpToDate,HandMod=OtherMod");
+            var pet = vm.SelectedGame!.Mods.Single(m => m.Id == "Pet");
+            Console.WriteLine($"Pet: status=\"{pet.StatusText}\" needs=\"{pet.NeedsText}\" action=\"{pet.ActionText}\"");
+            Check("Window: installed mod without its dependency is flagged",
+                pet.HasDependencyProblem && pet.StatusText == "Won't load: Companion Bench is missing"
+                && pet.StatusKind == "warn" && pet.ActionText == "Install what it needs" && pet.NeedsText == "Needs Companion Bench");
             window.Close();
         };
         window.Loaded += (_, _) => timer.Start();

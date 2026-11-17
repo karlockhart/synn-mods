@@ -178,13 +178,15 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Margin="0,0,16,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" />
+                                        <WrapPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" Margin="0,0,12,0" />
                                             <TextBlock x:Name="Status" Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold"
-                                                       Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
-                                        </StackPanel>
+                                                       TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                        </WrapPanel>
                                         <TextBlock Text="{Binding Description}" Style="{StaticResource MutedText}" Margin="0,4,0,0" />
                                         <TextBlock Text="{Binding RequiredOnText}" FontSize="11" Foreground="{StaticResource AccentHi}" Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding NeedsText}" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,2,0,0"
+                                                   Visibility="{Binding HasNeedsText, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
