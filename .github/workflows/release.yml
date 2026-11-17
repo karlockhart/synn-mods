@@ -1,0 +1,68 @@
+# Builds the Synn Mods installer when a version tag (v1.2.3) is pushed, signs it with Azure
+# Artifact Signing, and publishes it as the repo's *latest* GitHub Release. Installed copies of
+# Synn Mods update themselves from releases/latest, so mod releases (made by
+# tools/publish-mods.ps1) are always created with --latest=false.
+#
+# Signing setup (SIGNING.md): a "signing" environment, limited to v* tags, holding the secrets
+# AZURE_CLIENT_ID and AZURE_TENANT_ID for an Entra app that may sign. It signs in to Azure with
+# OIDC, so no password or client secret is stored anywhere.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # create the release and upload assets
+  id-token: write  # sign in to Azure with OIDC
+
+jobs:
+  release:
+    runs-on: windows-latest
+    environment: signing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x  # the app and Microsoft's signing client both need .NET 10
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Build and sign
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          ./build.ps1 -Version $version -Sign
+
+      - name: Write SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem artifacts/releases -File | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          }
+          [IO.File]::WriteAllText("artifacts/releases/SHA256SUMS.txt", ($lines -join "`n") + "`n")
+          Get-Content artifacts/releases/SHA256SUMS.txt
+
+      - name: Create GitHub Release (latest)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $files = Get-ChildItem artifacts/releases -File | ForEach-Object FullName
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @files --clobber
+            gh release edit $tag --latest
+          } else {
+            gh release create $tag @files --title "Synn Mods $tag" --latest `
+              --notes "Download and run **SynnMods-win-Setup.exe**. Already installed? Synn Mods updates itself."
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

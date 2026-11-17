@@ -1,0 +1,12 @@
+{
+  "_comment": "Used only by tools/publish-mods.ps1 on the publisher's PC. The app never reads this file.",
+  "sourceDir": "C:/Program Files (x86)/Steam/steamapps/common/Core Keeper/CoreKeeper_Data/StreamingAssets/Mods",
+  "unity": {
+    "editor": "C:/Program Files/Unity/Hub/Editor/6000.0.59f2/Editor/Unity.exe",
+    "project": "C:/devel/core_keepers/CoreKeeperModSDK",
+    "builders": {
+      "BumBum": "BumBumBuilder.BuildAndInstall",
+      "GhostMommy": "GhostMommyBuilder.BuildAndInstall"
+    }
+  }
+}

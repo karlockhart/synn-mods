@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "Core Keeper",
+  "description": "Mods for Core Keeper, made with the Pugstorm Mod SDK.",
+  "notice": "Multiplayer: the host (or dedicated server) and every player must have the same mods at the same versions. If anyone is missing a mod or has a different version, they can't join or the game may break. After an update, everyone should press \"Install / update all\" before playing.",
+  "targets": [
+    {
+      "id": "client",
+      "label": "Game",
+      "description": "Your Core Keeper game. Use this to play or to host from inside the game.",
+      "steamAppId": 1621690,
+      "steamFolder": "Core Keeper",
+      "modsPath": "CoreKeeper_Data/StreamingAssets/Mods",
+      "detectFile": "CoreKeeper.exe",
+      "processNames": [ "CoreKeeper" ]
+    },
+    {
+      "id": "server",
+      "label": "Dedicated server",
+      "description": "A Core Keeper dedicated server. It needs the same mods as the players.",
+      "steamAppId": 1963720,
+      "steamFolder": "Core Keeper Dedicated Server",
+      "modsPath": "CoreKeeperServer_Data/StreamingAssets/Mods",
+      "processNames": [ "CoreKeeperServer" ]
+    }
+  ]
+}
