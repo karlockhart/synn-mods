@@ -216,29 +216,38 @@ if (-not $Publish) {
 }
 
 # ---------- publish ----------
+# Runs a native command and returns its exit code. Windows PowerShell 5.1 turns anything a native
+# command writes to stderr (progress, "release not found") into a terminating error under
+# ErrorActionPreference=Stop, so success is judged by the exit code alone.
+function Invoke-Native([scriptblock] $Command, [switch] $Quiet) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($Quiet) { & $Command *> $null } else { & $Command 2>&1 | ForEach-Object { Write-Host $_ } }
+        return $LASTEXITCODE
+    } finally { $ErrorActionPreference = $saved }
+}
+
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'The GitHub CLI (gh) is not installed: winget install -e --id GitHub.cli' }
-gh auth status *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Not signed in to GitHub. Run: gh auth login' }
+if ((Invoke-Native { gh auth status } -Quiet) -ne 0) { throw 'Not signed in to GitHub. Run: gh auth login' }
 
 $toRelease = @($results | Where-Object Status -eq 'new')
 if ($toRelease.Count -eq 0) { Write-Host 'Nothing changed; nothing to publish.'; return }
 
 foreach ($r in $toRelease) {
-    gh release view $r.Tag -R $Repo --json tagName *> $null
-    if ($LASTEXITCODE -eq 0) { throw "Release $($r.Tag) already exists. Releases aren't overwritten; pass a new -Version." }
+    if ((Invoke-Native { gh release view $r.Tag -R $Repo --json tagName } -Quiet) -eq 0) { throw "Release $($r.Tag) already exists. Releases aren't overwritten; pass a new -Version." }
 }
 
 $gameName = (Get-Content -Raw (Join-Path $gameDir 'game.json') | ConvertFrom-Json).name
 foreach ($r in $toRelease) {
     Write-Host "Creating release $($r.Tag)..."
     $notes = "$gameName mod **$($r.Mod.name)** $($r.Version).`n`nInstall it with Synn Mods. SHA-256: ``$($r.Sha256)``"
-    gh release create $r.Tag $r.Zip -R $Repo --title "$gameName - $($r.Mod.name) $($r.Version)" --notes $notes --latest=false
-    if ($LASTEXITCODE -ne 0) { throw "gh release create $($r.Tag) failed." }
+    $title = "$gameName - $($r.Mod.name) $($r.Version)"
+    if ((Invoke-Native { gh release create $r.Tag $r.Zip -R $Repo --title $title --notes $notes --latest=false }) -ne 0) { throw "gh release create $($r.Tag) failed." }
 
     # Check what GitHub serves matches what we hashed.
     $check = Join-Path $dist "verify-$($r.ZipName)"
-    gh release download $r.Tag -R $Repo -p $r.ZipName -O $check --clobber
-    if ($LASTEXITCODE -ne 0) { throw "Couldn't download $($r.ZipName) back from the release to check it." }
+    if ((Invoke-Native { gh release download $r.Tag -R $Repo -p $r.ZipName -O $check --clobber }) -ne 0) { throw "Couldn't download $($r.ZipName) back from the release to check it." }
     $remote = (Get-FileHash -Algorithm SHA256 $check).Hash.ToLowerInvariant()
     Remove-Item $check
     if ($remote -ne $r.Sha256) { throw "The uploaded $($r.ZipName) hashes to $remote, not $($r.Sha256). mods.json was not changed." }
@@ -252,11 +261,10 @@ Write-Host "Updated $modsJsonPath."
 if ($Push) {
     Push-Location $root
     try {
-        git add -- "$Game/mods.json"
-        git commit -m "$($gameName): publish $(($toRelease | ForEach-Object { "$($_.Id) $($_.Version)" }) -join ', ')"
-        if ($LASTEXITCODE -ne 0) { throw 'git commit failed.' }
-        git push
-        if ($LASTEXITCODE -ne 0) { throw 'git push failed.' }
+        $message = "$($gameName): publish $(($toRelease | ForEach-Object { "$($_.Id) $($_.Version)" }) -join ', ')"
+        if ((Invoke-Native { git add -- "$Game/mods.json" }) -ne 0) { throw 'git add failed.' }
+        if ((Invoke-Native { git commit -m $message }) -ne 0) { throw 'git commit failed.' }
+        if ((Invoke-Native { git push }) -ne 0) { throw 'git push failed.' }
     } finally { Pop-Location }
     Write-Host 'Pushed. Friends will see the update in Synn Mods within about 5 minutes.'
 } else {
